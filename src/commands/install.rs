@@ -21,7 +21,20 @@ struct Repository {
 struct Package {
     repository: Repository,
     #[serde(default)]
-    dependencies: HashMap<String, String>
+    dependencies: HashMap<String, String>,
+    #[serde(default)]
+    versions: Vec<String>
+}
+
+#[derive(Deserialize, Debug)]
+struct PackageInfo {
+    name: String,
+    versions: HashMap<String, PackageVersion>
+}
+
+#[derive(Deserialize, Debug)]
+struct PackageVersion {
+    version: String,
 }
 
 pub(crate) fn command_config() -> App<'static, 'static, 'static, 'static, 'static, 'static> {
@@ -59,28 +72,33 @@ fn download_dependency(name: String, version: String) {
     }
 }
 
-
 fn load_package_json(name: String, version: String) -> Package {
     let tag = version
         .replace("^", "")
         .replace("~", "");
 
-    let repository_url = format!("https://registry.npmjs.org/{}/{}", name, tag);
+    let info_json_content = get_json_content(format!("https://registry.npmjs.org/{}", name));
+    let package_info = serde_json::from_str::<PackageInfo>(&info_json_content).unwrap();
 
+    let repository_url = format!("https://registry.npmjs.org/{}/{}", name, tag);
     println!("Fetch {}", repository_url);
 
-    match ureq::get(&repository_url).call() {
+    let json_content = get_json_content(repository_url);
+    let mut package = serde_json::from_str::<Package>(&json_content).unwrap();
+    package.repository.url = package.repository.url.replace("git+", "");
+
+    for version in package_info.versions.keys() {
+        package.versions.push(version.to_string());
+    }
+
+    return package;
+}
+
+fn get_json_content(url: String) -> String {
+    return match ureq::get(&url).call() {
         Ok(response) => {
-
-            let content = response.into_string().unwrap();
-
-            let result: Result<Package, serde_json::Error> = serde_json::from_str(&content);
-            let mut package = result.unwrap();
-            package.repository.url = package.repository.url.replace("git+", "");
-
-            return package;
-
+            response.into_string().unwrap()
         },
-        Err(_) => { panic!("Unable to load package") }
+        Err(_) => { panic!("Unable to load content") }
     }
 }
